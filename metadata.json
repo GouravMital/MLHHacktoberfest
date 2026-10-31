@@ -1,0 +1,6 @@
+{
+  "name": "Aetheria: Autonomous Synthetic Micro-Civilization",
+  "description": "Autonomous multi-agent micro-civilization and on-chain governance matrix with 3D isometric city grid, agentic memory loops, and smart contract voting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

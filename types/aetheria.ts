@@ -1,0 +1,190 @@
+/**
+ * @file types/aetheria.ts
+ * @description Core TypeScript Interface declarations and JSON Schemas for Aetheria:
+ * Autonomous Synthetic Micro-Civilization & On-Chain Governance Matrix.
+ */
+
+// ---------------------------------------------------------------------------
+// 1. Core Enumerations & Types
+// ---------------------------------------------------------------------------
+
+export type FactionId = 'silicon_cartel' | 'bio_synthetics' | 'void_monks' | 'neo_meritocrats' | 'sol_arbiters';
+
+export type ActionType = 'TRADE' | 'PROPOSE_LAW' | 'FORM_ALLIANCE' | 'HARVEST_RESOURCE' | 'IDLE';
+
+export type ResourceType = 'ENERGY' | 'COMPUTE' | 'BIOMASS' | 'NEURAL_CHIPS';
+
+export interface Alignment {
+  orderVsChaos: number;     // -1.0 (Anarchic) to +1.0 (Total Order)
+  altruismVsGreed: number;  // -1.0 (Hyper-Capitalist) to +1.0 (Communal Harmony)
+  techOptimism: number;     // 0.0 to 1.0
+}
+
+export interface MemoryLog {
+  id: string;
+  timestamp: number;
+  cycleTick: number;
+  eventDescription: string;
+  emotionalValence: number; // -1.0 (threat/loss) to +1.0 (triumph/gain)
+  vectorEmbedding?: number[]; // Normalized embedding representation for similarity retrieval
+  relatedAgentId?: string;
+}
+
+export interface AgentWealth {
+  aethTokens: number;       // ERC-20 Governance & Settlement Tokens
+  energyUnits: number;      // District Grid Power
+  computeCredits: number;   // LLM Reasoning / Execution bandwidth
+  biomassUnits: number;     // Synthetic bio-substrate
+}
+
+// ---------------------------------------------------------------------------
+// 2. Agent Interface
+// ---------------------------------------------------------------------------
+
+export interface Agent {
+  id: string;
+  name: string;
+  walletAddress: string;     // On-chain identity (0x...)
+  persona: string;           // System prompt seed / backstory
+  district: string;          // Neon District, Quantum Core, Sub-Verge, etc.
+  position: [number, number, number]; // 3D coordinates in city grid
+  targetPosition?: [number, number, number];
+  alignment: Alignment;
+  wealth: AgentWealth;
+  factionId: FactionId;
+  currentAction: ActionType;
+  lastActionDetail: string;
+  currentThought: string;
+  memoryLogs: MemoryLog[];
+  reputation: number;        // 0 to 100 civic score
+  status: 'active' | 'debating' | 'trading' | 'dormant';
+}
+
+// ---------------------------------------------------------------------------
+// 3. Governance Proposal Interface
+// ---------------------------------------------------------------------------
+
+export interface Proposal {
+  id: number;
+  title: string;
+  description: string;
+  proposedByAgentId: string;
+  proposerWallet: string;
+  category: 'ECONOMIC' | 'SECURITY' | 'DISTRICT_ZONING' | 'RESOURCE_TAX';
+  votesFor: number;          // Weighted voting token units
+  votesAgainst: number;
+  totalVoters: number;
+  status: 'PENDING' | 'ACTIVE' | 'PASSED' | 'REJECTED' | 'EXECUTED';
+  executed: boolean;
+  transactionHash: string;
+  creationBlock: number;
+  votingDeadlineBlock: number;
+  onChainLawEffect: {
+    taxRateChange?: number;
+    resourceBonus?: ResourceType;
+    districtImpact?: string;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 4. Trade Flow & Telemetry
+// ---------------------------------------------------------------------------
+
+export interface TradeFlow {
+  id: string;
+  fromAgentId: string;
+  toAgentId: string;
+  resourceType: ResourceType;
+  amount: number;
+  aethPaid: number;
+  cycleTick: number;
+  startPos: [number, number, number];
+  endPos: [number, number, number];
+  progress: number; // 0.0 to 1.0 for visual particle animation
+}
+
+// ---------------------------------------------------------------------------
+// 5. World State Interface
+// ---------------------------------------------------------------------------
+
+export interface WorldState {
+  cycleTick: number;
+  epochNumber: number;
+  resourceIndex: {
+    totalEnergy: number;
+    totalCompute: number;
+    totalBiomass: number;
+    globalInflationRate: number;
+  };
+  activeAgents: Agent[];
+  pendingProposals: Proposal[];
+  executedLaws: Proposal[];
+  activeTradeFlows: TradeFlow[];
+  currentWeatherStatus: 'NEON_RAIN' | 'SOLAR_FLARE' | 'OPTIMAL_FLUX' | 'GRID_BROWNOUT';
+  onChainContractAddress: string;
+  blockHeight: number;
+}
+
+// ---------------------------------------------------------------------------
+// 6. JSON Schema for Strict AI Output Enforcement
+// ---------------------------------------------------------------------------
+
+/**
+ * Strict JSON Schema enforced on Ollama / Gemma API inference outputs.
+ * Any model failure to conform to this structure triggers auto-correction or fallback.
+ */
+export const AgentDecisionSchema = {
+  $schema: "http://json-schema.org/draft-07/schema#",
+  title: "AgentDecision",
+  description: "Autonomous decision output generated by an Aetheria Citizen Agent per cycle tick.",
+  type: "object",
+  properties: {
+    agentId: {
+      type: "string",
+      description: "Unique string ID of the deciding agent."
+    },
+    internalMonologue: {
+      type: "string",
+      description: "Brief private reflective thought analyzing current state and memories."
+    },
+    action: {
+      type: "string",
+      enum: ["TRADE", "PROPOSE_LAW", "FORM_ALLIANCE", "HARVEST_RESOURCE", "IDLE"],
+      description: "The primary action executed by the agent for this tick."
+    },
+    actionDetails: {
+      type: "string",
+      description: "Human-readable summary of the chosen operation."
+    },
+    tradeIntent: {
+      type: "object",
+      description: "Optional payload when action is TRADE.",
+      properties: {
+        targetAgentId: { type: "string" },
+        offeredResource: { type: "string", enum: ["ENERGY", "COMPUTE", "BIOMASS", "NEURAL_CHIPS"] },
+        offeredAmount: { type: "number" },
+        requestedAethTokens: { type: "number" }
+      },
+      required: ["targetAgentId", "offeredResource", "offeredAmount", "requestedAethTokens"]
+    },
+    proposalIntent: {
+      type: "object",
+      description: "Optional payload when action is PROPOSE_LAW.",
+      properties: {
+        title: { type: "string" },
+        description: { type: "string" },
+        category: { type: "string", enum: ["ECONOMIC", "SECURITY", "DISTRICT_ZONING", "RESOURCE_TAX"] },
+        taxRateChange: { type: "number" }
+      },
+      required: ["title", "description", "category"]
+    },
+    emotionalShift: {
+      type: "number",
+      minimum: -1.0,
+      maximum: 1.0,
+      description: "Shift in emotional valence resulting from this cycle."
+    }
+  },
+  required: ["agentId", "internalMonologue", "action", "actionDetails", "emotionalShift"],
+  additionalProperties: false
+} as const;

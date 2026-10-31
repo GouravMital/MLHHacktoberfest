@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+:root {
+  --dp-color-ground: #000000;
+  --dp-color-ink: #66ff66;
+  --dp-color-ink-muted: #58ca58;
+  --dp-color-rule: #255325;
+  --dp-color-emphasis: #ffffff;
+  --dp-typography-face: "IBM Plex Mono", "TerminalPlex", monospace;
+  --dp-typography-body: 16px;
+  --dp-typography-label: 14px;
+  --dp-typography-heading: 20px;
+  --dp-typography-display: 32px;
+  --dp-radius-control: 0;
+  --dp-border-hairline: 1px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #000000;
+  color: #66ff66;
+  font-family: var(--dp-typography-face);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+@keyframes cursorBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.terminal-cursor {
+  display: inline-block;
+  width: 0.6em;
+  height: 1.1em;
+  background-color: #66ff66;
+  vertical-align: -0.15em;
+  animation: cursorBlink 1.2s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-cursor {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Custom terminal scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #255325;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #58ca58;
+}

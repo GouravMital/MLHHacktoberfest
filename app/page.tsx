@@ -10,6 +10,8 @@ import {
   FactionId,
 } from '../types/aetheria';
 
+type ViewMode = 'workstation' | 'grid' | 'citizens' | 'governance' | 'thoughts';
+
 const GENESIS_AGENTS: Agent[] = [
   {
     id: 'agent_01',
@@ -209,12 +211,22 @@ export default function AetheriaDashboard() {
     blockHeight: 18459252,
   });
 
+  // Navigation & Traversal State
+  const [activeTab, setActiveTab] = useState<ViewMode>('workstation');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>('agent_01');
   const [isSimulating, setIsSimulating] = useState<boolean>(true);
   const [simSpeed, setSimSpeed] = useState<number>(1);
   const [governorPrompt, setGovernorPrompt] = useState<string>('');
   const [isTxExecuting, setIsTxExecuting] = useState<boolean>(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(
+    'SYSTEM READY. TIP: CLICK ANY CITIZEN OR USE [PREV/NEXT] TO INSPECT THEIR TELEMETRY.'
+  );
+
+  // Beginner Guide Toggle
+  const [showBeginnerGuide, setShowBeginnerGuide] = useState<boolean>(true);
+
+  // Faction Filter for Thought Stream
+  const [thoughtFilter, setThoughtFilter] = useState<FactionId | 'ALL'>('ALL');
 
   // Web3 Governor State
   const [governorAethBalance, setGovernorAethBalance] = useState<number>(500);
@@ -258,9 +270,48 @@ export default function AetheriaDashboard() {
     },
   ]);
 
-  const selectedAgent = worldState.activeAgents.find((a) => a.id === selectedAgentId) || null;
+  // Selected agent index for easy Prev / Next traversal
+  const selectedAgentIndex = worldState.activeAgents.findIndex((a) => a.id === selectedAgentId);
+  const selectedAgent = worldState.activeAgents[selectedAgentIndex >= 0 ? selectedAgentIndex : 0] || null;
 
-  // Simulation Loop
+  const navigateAgent = (direction: 'prev' | 'next') => {
+    const total = worldState.activeAgents.length;
+    if (total === 0) return;
+    const currentIndex = selectedAgentIndex >= 0 ? selectedAgentIndex : 0;
+    const nextIndex = direction === 'next' ? (currentIndex + 1) % total : (currentIndex - 1 + total) % total;
+    const targetAgent = worldState.activeAgents[nextIndex];
+    setSelectedAgentId(targetAgent.id);
+    setStatusMessage(`SELECTED: ${targetAgent.name} [${FACTION_CONFIG[targetAgent.factionId].name}]`);
+  };
+
+  // Keyboard Navigation Listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts if user is typing in the input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      if (e.key === '1') setActiveTab('workstation');
+      if (e.key === '2') setActiveTab('grid');
+      if (e.key === '3') setActiveTab('citizens');
+      if (e.key === '4') setActiveTab('governance');
+      if (e.key === '5') setActiveTab('thoughts');
+      if (e.key === 'n' || e.key === 'N') navigateAgent('next');
+      if (e.key === 'p' || e.key === 'P') navigateAgent('prev');
+      if (e.key === ' ') {
+        e.preventDefault();
+        setIsSimulating((s) => !s);
+      }
+      if (e.key === '?') {
+        setShowBeginnerGuide((g) => !g);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [worldState.activeAgents, selectedAgentIndex]);
+
+  // Simulation Loop Effect
   useEffect(() => {
     if (!isSimulating) return;
 
@@ -385,8 +436,8 @@ export default function AetheriaDashboard() {
       setVotedProposalIds((prev) => ({ ...prev, [proposalId]: true }));
       setIsTxExecuting(false);
       const simulatedTx = `0x${Math.random().toString(16).substring(2, 10)}...${Math.random().toString(16).substring(2, 6)}`;
-      setStatusMessage(`OK: VOTE CONFIRMED ON-CHAIN [${voteWeight} AETH] // TX: ${simulatedTx}`);
-      setTimeout(() => setStatusMessage(null), 5000);
+      setStatusMessage(`SUCCESS: VOTE CAST [${voteWeight} AETH] ON BILL #${proposalId} // TX: ${simulatedTx}`);
+      setTimeout(() => setStatusMessage(null), 6000);
     }, 400);
   };
 
@@ -404,8 +455,8 @@ export default function AetheriaDashboard() {
       });
 
       setIsTxExecuting(false);
-      setStatusMessage(`OK: LAW #${proposalId} ENACTED ON-CHAIN // STATE INVARIANTS APPLIED`);
-      setTimeout(() => setStatusMessage(null), 5000);
+      setStatusMessage(`SUCCESS: BILL #${proposalId} PASSED AND ENACTED INTO MUNICIPAL LAW!`);
+      setTimeout(() => setStatusMessage(null), 6000);
     }, 500);
   };
 
@@ -430,14 +481,14 @@ export default function AetheriaDashboard() {
         tick: worldState.cycleTick,
         agentName: 'SYS_ORACLE',
         faction: 'sol_arbiters',
-        thought: `Governor invoked civic crisis: ${crisis}. Citizens re-evaluating priority queue.`,
+        thought: `Governor triggered environmental condition: ${crisis}. Citizens adjusting strategy.`,
         action: 'IDLE',
       },
       ...prev,
     ]);
 
-    setStatusMessage(`CRISIS SIGNAL DISPATCHED: ${crisis}`);
-    setTimeout(() => setStatusMessage(null), 4000);
+    setStatusMessage(`CRISIS TRIGGERED: ${crisis} — CITIZENS ARE REACTING`);
+    setTimeout(() => setStatusMessage(null), 5000);
   };
 
   const handleSendDecree = (e: React.FormEvent) => {
@@ -466,174 +517,379 @@ export default function AetheriaDashboard() {
     }));
 
     setGovernorPrompt('');
-    setStatusMessage(`OK: DECREE INJECTED INTO ${selectedAgent.name.toUpperCase()} MEMORY BUFFER`);
-    setTimeout(() => setStatusMessage(null), 4000);
+    setStatusMessage(`SUCCESS: DECREE INJECTED INTO ${selectedAgent.name.toUpperCase()}'S MEMORY`);
+    setTimeout(() => setStatusMessage(null), 5000);
   };
 
+  const filteredThoughts = thoughtLogs.filter((t) => thoughtFilter === 'ALL' || t.faction === thoughtFilter);
+
   return (
-    <div className="min-h-screen bg-black text-[#66ff66] font-mono text-[14px] leading-relaxed selection:bg-[#66ff66] selection:text-black">
+    <div className="min-h-screen bg-black text-[#66ff66] font-mono text-[14px] leading-relaxed selection:bg-[#66ff66] selection:text-black flex flex-col">
       {/* ------------------------------------------------------------------- */}
-      {/* 00. COMPACT SESSION MANUAL BAR                                      */}
+      {/* 1. TOP SESSION MANUAL & QUICK STATUS BAR                            */}
       {/* ------------------------------------------------------------------- */}
-      <header className="border-b border-[#255325] px-4 py-2 bg-black flex flex-wrap items-center justify-between gap-y-2">
-        <div className="flex items-center gap-2">
-          <span className="text-white font-bold text-base tracking-wider">AETHERIA</span>
-          <span className="text-[#58ca58]">::</span>
-          <span className="text-[#58ca58]">SYNTHETIC_MICRO_CIVILIZATION_V2.4</span>
-          <span className="terminal-cursor ml-1" />
+      <header className="border-b border-[#255325] px-4 py-2.5 bg-black flex flex-wrap items-center justify-between gap-y-2">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="text-white font-bold text-base tracking-wider">AETHERIA</span>
+            <span className="text-[#58ca58]">::</span>
+            <span className="text-[#58ca58] hidden sm:inline">SYNTHETIC_MICRO_CIVILIZATION</span>
+            <span className="terminal-cursor" />
+          </div>
+          <span className="border border-[#255325] px-1.5 py-0.2 text-[11px] text-[#58ca58]">
+            ARBITRUM_L2
+          </span>
         </div>
 
+        {/* Live Metrics Header */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
           <span>
-            NET: <span className="text-white">ARBITRUM_SEPOLIA</span>
-          </span>
-          <span>
-            EPOCH: <span className="text-white">{worldState.epochNumber}</span>
-          </span>
-          <span>
-            TICK: <span className="text-white">{worldState.cycleTick}</span>
+            TICK: <span className="text-white font-bold">{worldState.cycleTick}</span>
           </span>
           <span>
             BLOCK: <span className="text-white">#{worldState.blockHeight}</span>
           </span>
           <span>
-            FLUX: <span className="text-white">{worldState.currentWeatherStatus}</span>
+            FLUX: <span className="text-white font-bold">{worldState.currentWeatherStatus}</span>
           </span>
           <span className="border-l border-[#255325] pl-3">
-            GOVERNOR: <span className="text-white">0x71C...A89B</span> [
-            <span className="text-white font-bold">{governorAethBalance} AETH</span>]
+            YOUR STAKE: <span className="text-white font-bold">{governorAethBalance} AETH</span>
           </span>
           <button
-            onClick={() => setGovernorAethBalance((b) => b + 100)}
-            className="border border-[#255325] px-1.5 py-0.5 text-[11px] text-[#66ff66] hover:bg-[#66ff66] hover:text-black transition-none focus:outline focus:outline-1 focus:outline-[#66ff66]"
+            onClick={() => {
+              setGovernorAethBalance((b) => b + 100);
+              setStatusMessage('CLAIMED +100 TESTNET AETH GOVERNANCE TOKENS');
+            }}
+            className="border border-[#255325] px-2 py-0.5 text-[11px] text-[#66ff66] hover:bg-[#66ff66] hover:text-black transition-none focus:outline focus:outline-1 focus:outline-[#66ff66]"
+            title="Claim 100 free testnet AETH tokens to vote on proposals"
           >
             [+100 FAUCET]
           </button>
         </div>
       </header>
 
-      {/* Global Status Message Banner */}
+      {/* ------------------------------------------------------------------- */}
+      {/* 2. PRIMARY VIEW MODE NAVIGATION TABS (INSTANT TRAVERSAL)           */}
+      {/* ------------------------------------------------------------------- */}
+      <nav className="border-b border-[#255325] px-4 py-2 bg-black flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+          <span className="text-[#58ca58] text-xs mr-1 hidden md:inline">NAVIGATE:</span>
+
+          <button
+            onClick={() => setActiveTab('workstation')}
+            className={`border px-2.5 py-1 text-xs font-bold transition-none ${
+              activeTab === 'workstation'
+                ? 'border-[#66ff66] bg-[#66ff66] text-black'
+                : 'border-[#255325] text-[#66ff66] hover:bg-[#255325] hover:text-white'
+            }`}
+          >
+            [1. WORKSTATION (SPLIT)]
+          </button>
+
+          <button
+            onClick={() => setActiveTab('grid')}
+            className={`border px-2.5 py-1 text-xs font-bold transition-none ${
+              activeTab === 'grid'
+                ? 'border-[#66ff66] bg-[#66ff66] text-black'
+                : 'border-[#255325] text-[#66ff66] hover:bg-[#255325] hover:text-white'
+            }`}
+          >
+            [2. 3D CITY MAP]
+          </button>
+
+          <button
+            onClick={() => setActiveTab('citizens')}
+            className={`border px-2.5 py-1 text-xs font-bold transition-none ${
+              activeTab === 'citizens'
+                ? 'border-[#66ff66] bg-[#66ff66] text-black'
+                : 'border-[#255325] text-[#66ff66] hover:bg-[#255325] hover:text-white'
+            }`}
+          >
+            [3. CITIZENS ({worldState.activeAgents.length})]
+          </button>
+
+          <button
+            onClick={() => setActiveTab('governance')}
+            className={`border px-2.5 py-1 text-xs font-bold transition-none ${
+              activeTab === 'governance'
+                ? 'border-[#66ff66] bg-[#66ff66] text-black'
+                : 'border-[#255325] text-[#66ff66] hover:bg-[#255325] hover:text-white'
+            }`}
+          >
+            [4. ON-CHAIN LAWS ({worldState.pendingProposals.length})]
+          </button>
+
+          <button
+            onClick={() => setActiveTab('thoughts')}
+            className={`border px-2.5 py-1 text-xs font-bold transition-none ${
+              activeTab === 'thoughts'
+                ? 'border-[#66ff66] bg-[#66ff66] text-black'
+                : 'border-[#255325] text-[#66ff66] hover:bg-[#255325] hover:text-white'
+            }`}
+          >
+            [5. THOUGHT STREAM]
+          </button>
+        </div>
+
+        {/* Beginner Guide Toggle & Hotkey Indicator */}
+        <div className="flex items-center gap-2 text-xs">
+          <button
+            onClick={() => setShowBeginnerGuide((g) => !g)}
+            className={`border px-2 py-0.5 text-xs transition-none ${
+              showBeginnerGuide
+                ? 'border-[#255325] bg-[#255325] text-white'
+                : 'border-[#255325] text-[#58ca58] hover:text-white'
+            }`}
+          >
+            [? {showBeginnerGuide ? 'HIDE GUIDE' : 'BEGINNER GUIDE'}]
+          </button>
+
+          <span className="text-[11px] text-[#58ca58] hidden xl:inline">
+            HOTKEYS: [1-5]: Tabs | [N/P]: Prev/Next Agent | [Space]: Pause
+          </span>
+        </div>
+      </nav>
+
+      {/* ------------------------------------------------------------------- */}
+      {/* 3. COLLAPSIBLE BEGINNER QUICKSTART & 1-CLICK ACTIONS               */}
+      {/* ------------------------------------------------------------------- */}
+      {showBeginnerGuide && (
+        <section className="border-b border-[#255325] p-3 bg-black text-xs">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-white font-bold">[BEGINNER_TUTORIAL // WHAT TO DO IN AETHERIA]</span>
+              <span className="text-[#58ca58]">:: 4 SIMPLE ACTIONS TO TRY NOW</span>
+            </div>
+            <button
+              onClick={() => setShowBeginnerGuide(false)}
+              className="text-[#58ca58] hover:text-white"
+            >
+              [CLOSE]
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5 text-xs">
+            {/* Step 1 */}
+            <div className="border border-[#255325] p-2 flex flex-col justify-between">
+              <div>
+                <div className="text-white font-bold mb-1">1. INSPECT A CITIZEN</div>
+                <p className="text-[#58ca58] text-[11px] mb-2">
+                  Each citizen has distinct vector memories, wealth, and faction philosophy.
+                </p>
+              </div>
+              <div className="flex gap-1.5 mt-1">
+                <button
+                  onClick={() => {
+                    setSelectedAgentId('agent_01');
+                    setStatusMessage('SELECTED: Nexus-7 [Silicon Cartel]');
+                  }}
+                  className="border border-[#255325] px-1.5 py-0.5 hover:bg-[#66ff66] hover:text-black text-[11px]"
+                >
+                  [Nexus-7]
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedAgentId('agent_02');
+                    setStatusMessage('SELECTED: Aura-V [Bio-Synthetics]');
+                  }}
+                  className="border border-[#255325] px-1.5 py-0.5 hover:bg-[#66ff66] hover:text-black text-[11px]"
+                >
+                  [Aura-V]
+                </button>
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div className="border border-[#255325] p-2 flex flex-col justify-between">
+              <div>
+                <div className="text-white font-bold mb-1">2. VOTE ON A LAW</div>
+                <p className="text-[#58ca58] text-[11px] mb-2">
+                  Use your 500 AETH Governor token stake to support or oppose bills proposed by AI.
+                </p>
+              </div>
+              <button
+                onClick={() => handleVote(1, true)}
+                className="border border-[#255325] px-2 py-0.5 hover:bg-[#66ff66] hover:text-black text-[11px] self-start"
+              >
+                [VOTE AYE ON BILL #1]
+              </button>
+            </div>
+
+            {/* Step 3 */}
+            <div className="border border-[#255325] p-2 flex flex-col justify-between">
+              <div>
+                <div className="text-white font-bold mb-1">3. TRIGGER A CRISIS</div>
+                <p className="text-[#58ca58] text-[11px] mb-2">
+                  Simulate a municipal brownout to see AI agents scramble to protect power reserves.
+                </p>
+              </div>
+              <button
+                onClick={() => handleInjectCrisis('GRID_BROWNOUT')}
+                className="border border-[#255325] px-2 py-0.5 hover:bg-[#66ff66] hover:text-black text-[11px] self-start"
+              >
+                [TRIGGER BROWNOUT]
+              </button>
+            </div>
+
+            {/* Step 4 */}
+            <div className="border border-[#255325] p-2 flex flex-col justify-between">
+              <div>
+                <div className="text-white font-bold mb-1">4. CYCLE CONTROLS</div>
+                <p className="text-[#58ca58] text-[11px] mb-2">
+                  Pause the simulation loop anytime or speed it up to 5x speed.
+                </p>
+              </div>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => setIsSimulating(!isSimulating)}
+                  className="border border-[#255325] px-1.5 py-0.5 hover:bg-[#66ff66] hover:text-black text-[11px]"
+                >
+                  {isSimulating ? '[PAUSE]' : '[RESUME]'}
+                </button>
+                <button
+                  onClick={() => setSimSpeed((s) => (s === 1 ? 2 : s === 2 ? 5 : 1))}
+                  className="border border-[#255325] px-1.5 py-0.5 hover:bg-[#66ff66] hover:text-black text-[11px]"
+                >
+                  [{simSpeed}X]
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ------------------------------------------------------------------- */}
+      {/* 4. NOTIFICATION / STATUS FEEDBACK BANNER                            */}
+      {/* ------------------------------------------------------------------- */}
       {statusMessage && (
-        <div className="border-b border-[#255325] bg-black px-4 py-1 text-xs text-white flex items-center justify-between">
+        <div className="border-b border-[#255325] bg-black px-4 py-1.5 text-xs text-white flex items-center justify-between">
           <span>&gt;&gt; {statusMessage}</span>
-          <button onClick={() => setStatusMessage(null)} className="text-[#58ca58] hover:text-white">
-            [x]
+          <button onClick={() => setStatusMessage(null)} className="text-[#58ca58] hover:text-white px-2">
+            [DISMISS]
           </button>
         </div>
       )}
 
       {/* ------------------------------------------------------------------- */}
-      {/* MAIN TWO-COLUMN WORKSTATION LAYOUT                                 */}
+      {/* 5. VIEW CONTENT CONTAINER BASED ON ACTIVE TAB                       */}
       {/* ------------------------------------------------------------------- */}
-      <div className="flex flex-col lg:flex-row min-h-[calc(100vh-42px)]">
-        {/* Left Column: Commands, Telemetry, and 3D Isometric Viewport */}
-        <main className="flex-1 flex flex-col border-b lg:border-b-0 lg:border-r border-[#255325]">
-          {/* 01: SYS.STATUS // SIMULATION CONTROLS & RESERVES */}
-          <section className="border-b border-[#255325] p-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="text-[#58ca58]">01</span>
-              <span className="text-white font-bold">sys.status</span>
-              <span className="text-[#58ca58]">::</span>
-              <span className="text-xs">
-                CITIZENS: <span className="text-white">{worldState.activeAgents.length}</span>
-              </span>
-              <span className="text-xs">
-                ENERGY: <span className="text-white">{worldState.resourceIndex.totalEnergy} MW</span>
-              </span>
-              <span className="text-xs">
-                COMPUTE: <span className="text-white">{worldState.resourceIndex.totalCompute} TF</span>
-              </span>
-              <span className="text-xs">
-                BIOMASS: <span className="text-white">{worldState.resourceIndex.totalBiomass} KG</span>
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-[#58ca58]">LOOP:</span>
-              <button
-                onClick={() => setIsSimulating(!isSimulating)}
-                className={`border px-2 py-0.5 text-xs transition-none ${
-                  isSimulating
-                    ? 'border-[#66ff66] bg-[#66ff66] text-black font-bold'
-                    : 'border-[#255325] text-[#66ff66] hover:bg-[#66ff66] hover:text-black'
-                }`}
-              >
-                {isSimulating ? '[PAUSE]' : '[RESUME]'}
-              </button>
-
-              <button
-                onClick={() => setSimSpeed((s) => (s === 1 ? 2 : s === 2 ? 5 : 1))}
-                className="border border-[#255325] px-2 py-0.5 hover:bg-[#66ff66] hover:text-black transition-none text-xs"
-              >
-                [{simSpeed}X_SPEED]
-              </button>
-            </div>
-          </section>
-
-          {/* 02: GOV.CRISIS // EMERGENCY OVERRIDE DISPATCH */}
-          <section className="border-b border-[#255325] p-2 px-3 text-xs flex flex-wrap items-center justify-between gap-2 bg-black">
-            <div className="flex items-center gap-2">
-              <span className="text-[#58ca58]">02</span>
-              <span className="text-white font-bold">gov.crisis</span>
-              <span className="text-[#58ca58]">::</span>
-              <span className="text-[#58ca58]">INJECT ANOMALY</span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleInjectCrisis('GRID_BROWNOUT')}
-                className="border border-[#255325] px-2 py-0.5 hover:bg-[#66ff66] hover:text-black text-[#58ca58] hover:text-black transition-none"
-              >
-                [BROWNOUT_OVERLOAD]
-              </button>
-              <button
-                onClick={() => handleInjectCrisis('SOLAR_FLARE')}
-                className="border border-[#255325] px-2 py-0.5 hover:bg-[#66ff66] hover:text-black text-[#58ca58] hover:text-black transition-none"
-              >
-                [SOLAR_RADIATION_FLARE]
-              </button>
-              <button
-                onClick={() => handleInjectCrisis('OPTIMAL_FLUX')}
-                className="border border-[#255325] px-2 py-0.5 hover:bg-[#66ff66] hover:text-black text-[#66ff66] hover:text-black transition-none"
-              >
-                [NORMALIZE_FLUX]
-              </button>
-            </div>
-          </section>
-
-          {/* 03: GRID.SPATIAL // 3D ISOMETRIC VECTOR MATRIX */}
-          <section className="flex-1 min-h-[380px] lg:min-h-[460px] relative border-b border-[#255325]">
-            <CityCanvas
-              agents={worldState.activeAgents}
-              tradeFlows={worldState.activeTradeFlows}
-              selectedAgentId={selectedAgentId}
-              onSelectAgent={(id) => setSelectedAgentId(id)}
-              weather={worldState.currentWeatherStatus}
-            />
-          </section>
-
-          {/* 04: AGENT ROSTER COMMAND ROW */}
-          <section className="border-b border-[#255325] p-3">
-            <div className="flex items-center justify-between mb-2">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        {/* ================================================================= */}
+        {/* TAB 1: WORKSTATION SPLIT VIEW (Standard view)                     */}
+        {/* ================================================================= */}
+        {(activeTab === 'workstation' || activeTab === 'grid') && (
+          <main className="flex-1 flex flex-col border-b lg:border-b-0 lg:border-r border-[#255325]">
+            {/* 3D Map Header with Quick Action Bar */}
+            <div className="border-b border-[#255325] px-3 py-2 flex flex-wrap items-center justify-between gap-2 bg-black text-xs">
               <div className="flex items-center gap-2">
-                <span className="text-[#58ca58]">03</span>
-                <span className="text-white font-bold">citizens.roster</span>
-                <span className="text-[#58ca58]">:: SELECT_NODE_TELEMETRY</span>
+                <span className="text-white font-bold">3D WIREFRAME CITY MATRIX</span>
+                <span className="text-[#58ca58]">:: CLICK ANY NODE TO INSPECT</span>
               </div>
-              <span className="text-xs text-[#58ca58]">{worldState.activeAgents.length} NODES LINKED</span>
+
+              {/* Prev / Next Node Traversal Controls */}
+              <div className="flex items-center gap-2">
+                <span className="text-[#58ca58]">TRAVERSE:</span>
+                <button
+                  onClick={() => navigateAgent('prev')}
+                  className="border border-[#255325] px-2 py-0.5 hover:bg-[#66ff66] hover:text-black text-xs transition-none"
+                  title="Switch to previous citizen [Hotkey: P]"
+                >
+                  [&lt; PREV]
+                </button>
+                <span className="text-white font-bold">{selectedAgent?.name || 'NONE'}</span>
+                <button
+                  onClick={() => navigateAgent('next')}
+                  className="border border-[#255325] px-2 py-0.5 hover:bg-[#66ff66] hover:text-black text-xs transition-none"
+                  title="Switch to next citizen [Hotkey: N]"
+                >
+                  [NEXT &gt;]
+                </button>
+              </div>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* 3D Interactive Canvas */}
+            <div className="flex-1 min-h-[380px] lg:min-h-[480px] relative bg-black">
+              <CityCanvas
+                agents={worldState.activeAgents}
+                tradeFlows={worldState.activeTradeFlows}
+                selectedAgentId={selectedAgentId}
+                onSelectAgent={(id) => {
+                  setSelectedAgentId(id);
+                  const found = worldState.activeAgents.find((a) => a.id === id);
+                  if (found) {
+                    setStatusMessage(`INSPECTING: ${found.name} [${FACTION_CONFIG[found.factionId].name}]`);
+                  }
+                }}
+                weather={worldState.currentWeatherStatus}
+              />
+            </div>
+
+            {/* Quick Municipal Telemetry Ribbon */}
+            <div className="border-t border-[#255325] p-2.5 px-3 bg-black flex flex-wrap items-center justify-between text-xs gap-3">
+              <div className="flex items-center gap-4">
+                <span>
+                  ENERGY: <span className="text-white">{worldState.resourceIndex.totalEnergy} MW</span>
+                </span>
+                <span>
+                  COMPUTE: <span className="text-white">{worldState.resourceIndex.totalCompute} TF</span>
+                </span>
+                <span>
+                  BIOMASS: <span className="text-white">{worldState.resourceIndex.totalBiomass} KG</span>
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[#58ca58]">QUICK CRISIS:</span>
+                <button
+                  onClick={() => handleInjectCrisis('GRID_BROWNOUT')}
+                  className="border border-[#255325] px-1.5 py-0.5 hover:bg-[#66ff66] hover:text-black text-[11px]"
+                >
+                  [BROWNOUT]
+                </button>
+                <button
+                  onClick={() => handleInjectCrisis('SOLAR_FLARE')}
+                  className="border border-[#255325] px-1.5 py-0.5 hover:bg-[#66ff66] hover:text-black text-[11px]"
+                >
+                  [SOLAR FLARE]
+                </button>
+                <button
+                  onClick={() => handleInjectCrisis('OPTIMAL_FLUX')}
+                  className="border border-[#255325] px-1.5 py-0.5 hover:bg-[#66ff66] hover:text-black text-[11px]"
+                >
+                  [NORMALIZE]
+                </button>
+              </div>
+            </div>
+          </main>
+        )}
+
+        {/* ================================================================= */}
+        {/* TAB 3: CITIZENS DIRECTORY (Full Roster & Comparison)              */}
+        {/* ================================================================= */}
+        {activeTab === 'citizens' && (
+          <main className="flex-1 p-4 overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[#255325] pb-2 mb-3">
+              <div>
+                <h2 className="text-white font-bold text-base">CITIZEN AGENT DIRECTORY</h2>
+                <p className="text-xs text-[#58ca58]">
+                  Click any citizen row to lock target and inspect neural memory buffers.
+                </p>
+              </div>
+              <span className="text-xs text-[#58ca58]">{worldState.activeAgents.length} CITIZENS REGISTERED</span>
+            </div>
+
+            <div className="overflow-x-auto mb-4">
               <table className="w-full text-left text-xs border border-[#255325] border-collapse">
                 <thead>
                   <tr className="border-b border-[#255325] text-[#58ca58] bg-black">
-                    <th className="p-1.5 border-r border-[#255325]">ID</th>
-                    <th className="p-1.5 border-r border-[#255325]">NAME</th>
-                    <th className="p-1.5 border-r border-[#255325]">FACTION AFFILIATION</th>
-                    <th className="p-1.5 border-r border-[#255325]">DISTRICT</th>
-                    <th className="p-1.5 border-r border-[#255325]">STATUS</th>
-                    <th className="p-1.5 border-r border-[#255325]">WEALTH (AETH / TF)</th>
-                    <th className="p-1.5">ACTION</th>
+                    <th className="p-2 border-r border-[#255325]">ID</th>
+                    <th className="p-2 border-r border-[#255325]">NAME</th>
+                    <th className="p-2 border-r border-[#255325]">FACTION AFFILIATION</th>
+                    <th className="p-2 border-r border-[#255325]">DISTRICT</th>
+                    <th className="p-2 border-r border-[#255325]">STATUS</th>
+                    <th className="p-2 border-r border-[#255325]">AETH STAKE</th>
+                    <th className="p-2 border-r border-[#255325]">COMPUTE</th>
+                    <th className="p-2">SELECT</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -645,16 +901,14 @@ export default function AetheriaDashboard() {
                         key={ag.id}
                         onClick={() => setSelectedAgentId(ag.id)}
                         className={`cursor-pointer border-b border-[#255325] transition-none ${
-                          isSelected
-                            ? 'bg-[#66ff66] text-black font-bold'
-                            : 'hover:bg-[#001400] text-[#66ff66]'
+                          isSelected ? 'bg-[#66ff66] text-black font-bold' : 'hover:bg-[#001400]'
                         }`}
                       >
-                        <td className="p-1.5 border-r border-[#255325]">{ag.id}</td>
-                        <td className="p-1.5 border-r border-[#255325] text-white">
+                        <td className="p-2 border-r border-[#255325]">{ag.id}</td>
+                        <td className="p-2 border-r border-[#255325] text-white">
                           {isSelected ? `> ${ag.name}` : ag.name}
                         </td>
-                        <td className="p-1.5 border-r border-[#255325]">
+                        <td className="p-2 border-r border-[#255325]">
                           <span
                             className="px-1 border border-current font-bold"
                             style={{ color: isSelected ? '#000000' : fConfig.hex }}
@@ -662,24 +916,24 @@ export default function AetheriaDashboard() {
                             [{fConfig.tag}] {fConfig.name}
                           </span>
                         </td>
-                        <td className="p-1.5 border-r border-[#255325]">{ag.district}</td>
-                        <td className="p-1.5 border-r border-[#255325] uppercase">{ag.currentAction}</td>
-                        <td className="p-1.5 border-r border-[#255325]">
-                          {ag.wealth.aethTokens} AETH / {ag.wealth.computeCredits} TF
-                        </td>
-                        <td className="p-1.5">
+                        <td className="p-2 border-r border-[#255325]">{ag.district}</td>
+                        <td className="p-2 border-r border-[#255325] uppercase">{ag.currentAction}</td>
+                        <td className="p-2 border-r border-[#255325]">{ag.wealth.aethTokens} AETH</td>
+                        <td className="p-2 border-r border-[#255325]">{ag.wealth.computeCredits} TF</td>
+                        <td className="p-2">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedAgentId(ag.id);
+                              setActiveTab('workstation');
                             }}
-                            className={`border px-1 text-[11px] ${
+                            className={`border px-1.5 py-0.5 text-xs ${
                               isSelected
                                 ? 'border-black text-black'
                                 : 'border-[#255325] hover:bg-[#66ff66] hover:text-black'
                             }`}
                           >
-                            [INSPECT]
+                            [INSPECT 3D]
                           </button>
                         </td>
                       </tr>
@@ -688,22 +942,27 @@ export default function AetheriaDashboard() {
                 </tbody>
               </table>
             </div>
-          </section>
+          </main>
+        )}
 
-          {/* 05: GOV.PROPOSALS // ON-CHAIN LEGISLATIVE CONSENSUS */}
-          <section className="p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-[#58ca58]">04</span>
-                <span className="text-white font-bold">gov.proposals</span>
-                <span className="text-[#58ca58]">:: ON-CHAIN SOLIDITY MATRIX</span>
+        {/* ================================================================= */}
+        {/* TAB 4: GOVERNANCE MATRIX (Full Proposals View)                    */}
+        {/* ================================================================= */}
+        {activeTab === 'governance' && (
+          <main className="flex-1 p-4 overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[#255325] pb-2 mb-3">
+              <div>
+                <h2 className="text-white font-bold text-base">ON-CHAIN GOVERNANCE MATRIX</h2>
+                <p className="text-xs text-[#58ca58]">
+                  Bills autonomously formulated and broadcasted by citizen agents. Human Governors vote with AETH weight.
+                </p>
               </div>
               <span className="text-xs text-[#58ca58]">
-                CONTRACT: {worldState.onChainContractAddress.slice(0, 14)}...
+                CONTRACT: {worldState.onChainContractAddress.slice(0, 16)}...
               </span>
             </div>
 
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {worldState.pendingProposals.map((prop) => {
                 const totalVotes = prop.votesFor + prop.votesAgainst;
                 const forPercent = totalVotes > 0 ? (prop.votesFor / totalVotes) * 100 : 50;
@@ -713,293 +972,330 @@ export default function AetheriaDashboard() {
                 const pFaction = proposingAgent ? FACTION_CONFIG[proposingAgent.factionId] : null;
 
                 return (
-                  <div key={prop.id} className="border border-[#255325] p-3 bg-black">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#255325] pb-2 mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-white font-bold">BILL #{prop.id}</span>
-                        <span className="text-[#58ca58]">::</span>
-                        <span className="text-white">{prop.title}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-xs">
-                        {pFaction && (
-                          <span
-                            className="px-1 border border-current text-[11px]"
-                            style={{ color: pFaction.hex }}
-                          >
-                            SPONSORED_BY: [{pFaction.tag}] {pFaction.name}
-                          </span>
-                        )}
+                  <div key={prop.id} className="border border-[#255325] p-3.5 bg-black flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-start justify-between gap-2 border-b border-[#255325] pb-2 mb-2">
+                        <div>
+                          <div className="text-white font-bold text-sm">BILL #{prop.id}: {prop.title}</div>
+                          {pFaction && (
+                            <div className="text-[11px] mt-0.5" style={{ color: pFaction.hex }}>
+                              SPONSOR: [{pFaction.tag}] {pFaction.name} ({proposingAgent?.name})
+                            </div>
+                          )}
+                        </div>
                         <span className="border border-[#255325] px-1 text-[11px] text-[#58ca58]">
-                          CAT: {prop.category}
+                          {prop.category}
                         </span>
                       </div>
-                    </div>
 
-                    <p className="text-xs text-[#58ca58] mb-2">{prop.description}</p>
+                      <p className="text-xs text-[#58ca58] mb-3">{prop.description}</p>
 
-                    <div className="text-xs mb-3 text-[#58ca58] flex flex-wrap justify-between gap-2">
-                      <span>PROPOSER_WALLET: {prop.proposerWallet}</span>
-                      <span>TX_HASH: {prop.transactionHash.slice(0, 22)}...</span>
-                      <span>DEADLINE: BLOCK #{prop.votingDeadlineBlock}</span>
-                    </div>
-
-                    {/* Character Meter for Voting */}
-                    <div className="border border-[#255325] p-2 mb-3 bg-black text-xs">
-                      <div className="flex justify-between mb-1">
-                        <span>AYE: {prop.votesFor} AETH</span>
-                        <span className="text-white">
-                          QUORUM: {totalVotes}/500 {meetsQuorum ? '[REACHED]' : '[PENDING]'}
-                        </span>
-                        <span>NAY: {prop.votesAgainst} AETH</span>
+                      <div className="text-[11px] text-[#58ca58] mb-2 space-y-0.5">
+                        <div>TX: {prop.transactionHash.slice(0, 26)}...</div>
+                        <div>PROPOSER WALLET: {prop.proposerWallet}</div>
                       </div>
-                      {/* Character-based progress bar */}
-                      <div className="text-xs font-mono tracking-tight text-[#58ca58]">
-                        [{'#'.repeat(Math.round(forPercent / 4))}
-                        {'.'.repeat(Math.max(0, 25 - Math.round(forPercent / 4)))}] {forPercent.toFixed(1)}% FOR
+
+                      {/* Quorum Character Progress */}
+                      <div className="border border-[#255325] p-2 mb-3 text-xs bg-black">
+                        <div className="flex justify-between mb-1">
+                          <span className="text-white">AYE: {prop.votesFor} AETH</span>
+                          <span className={meetsQuorum ? 'text-[#66ff66] font-bold' : 'text-white'}>
+                            QUORUM: {totalVotes}/500 {meetsQuorum ? '[READY]' : '[PENDING]'}
+                          </span>
+                          <span>NAY: {prop.votesAgainst} AETH</span>
+                        </div>
+                        <div className="text-xs text-[#58ca58]">
+                          [{'#'.repeat(Math.round(forPercent / 4))}
+                          {'.'.repeat(Math.max(0, 25 - Math.round(forPercent / 4)))}] {forPercent.toFixed(1)}% FOR
+                        </div>
                       </div>
                     </div>
 
-                    {/* Human Governor Voting Actions */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#255325]">
-                      <div className="flex items-center gap-2 text-xs">
+                    {/* Actions */}
+                    <div className="flex items-center justify-between pt-2 border-t border-[#255325]">
+                      <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleVote(prop.id, true)}
                           disabled={hasVoted || isTxExecuting}
-                          className="border border-[#255325] px-2.5 py-1 text-white hover:bg-[#66ff66] hover:text-black transition-none disabled:opacity-40"
+                          className="border border-[#255325] px-2.5 py-1 text-white hover:bg-[#66ff66] hover:text-black transition-none text-xs disabled:opacity-40"
                         >
-                          [VOTE_AYE (+100 AETH)]
+                          [VOTE AYE]
                         </button>
                         <button
                           onClick={() => handleVote(prop.id, false)}
                           disabled={hasVoted || isTxExecuting}
-                          className="border border-[#255325] px-2.5 py-1 text-[#58ca58] hover:bg-[#66ff66] hover:text-black transition-none disabled:opacity-40"
+                          className="border border-[#255325] px-2.5 py-1 text-[#58ca58] hover:bg-[#66ff66] hover:text-black transition-none text-xs disabled:opacity-40"
                         >
-                          [VOTE_NAY]
+                          [VOTE NAY]
                         </button>
-                        {hasVoted && <span className="text-white text-[11px]">[VOTE_REGISTERED]</span>}
                       </div>
 
                       {meetsQuorum && (
                         <button
                           onClick={() => handleExecuteLaw(prop.id)}
                           disabled={isTxExecuting}
-                          className="border border-[#66ff66] bg-[#66ff66] text-black font-bold px-3 py-1 text-xs hover:bg-white transition-none"
+                          className="border border-[#66ff66] bg-[#66ff66] text-black font-bold px-3 py-1 text-xs hover:bg-white"
                         >
-                          [ENACT_LAW_ON_CHAIN]
+                          [ENACT LAW]
                         </button>
                       )}
                     </div>
                   </div>
                 );
               })}
-
-              {worldState.pendingProposals.length === 0 && (
-                <div className="border border-[#255325] p-3 text-center text-xs text-[#58ca58]">
-                  NO ACTIVE PROPOSALS PENDING. AGENTS CURRENTLY HARVESTING AND DELIBERATING.
-                </div>
-              )}
             </div>
-          </section>
-        </main>
+          </main>
+        )}
 
-        {/* Right Column: Selected Agent Telemetry & Autonomous Thought Stream */}
-        <aside className="w-full lg:w-[460px] flex flex-col bg-black">
-          {/* 06: AGENT.TELEMETRY // DEEP NEURAL INSPECTION */}
-          {selectedAgent ? (
-            <section className="border-b border-[#255325] p-4">
-              <div className="flex items-center justify-between border-b border-[#255325] pb-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-[#58ca58]">05</span>
-                  <span className="text-white font-bold">agent.telemetry</span>
-                </div>
-                <span className="text-xs text-white uppercase">[NODE: {selectedAgent.id}]</span>
+        {/* ================================================================= */}
+        {/* TAB 5: COGNITIVE THOUGHT STREAM (Dedicated View)                  */}
+        {/* ================================================================= */}
+        {activeTab === 'thoughts' && (
+          <main className="flex-1 p-4 overflow-y-auto">
+            <div className="flex flex-wrap items-center justify-between border-b border-[#255325] pb-2 mb-3 gap-2">
+              <div>
+                <h2 className="text-white font-bold text-base">AUTONOMOUS COGNITIVE THOUGHT STREAM</h2>
+                <p className="text-xs text-[#58ca58]">
+                  Real-time internal monologues and strategic calculations from citizen agents.
+                </p>
               </div>
 
-              {/* Identity & Faction Affiliation Details */}
-              <div className="space-y-2 mb-4 text-xs">
-                <div className="flex items-baseline justify-between">
-                  <span className="text-white font-bold text-base">{selectedAgent.name}</span>
-                  <span className="text-[#58ca58]">CIVIC_REP: {selectedAgent.reputation}/100</span>
-                </div>
-
-                {/* Explicit Faction Affiliation Marker & Tag Display */}
-                <div className="border border-[#255325] p-2 bg-black">
-                  <div className="text-[#58ca58] text-[11px] mb-1">FACTION AFFILIATION:</div>
-                  <div className="flex items-center justify-between">
-                    <span
-                      className="text-sm font-bold tracking-wide"
-                      style={{ color: FACTION_CONFIG[selectedAgent.factionId].hex }}
-                    >
-                      [{FACTION_CONFIG[selectedAgent.factionId].tag}] {FACTION_CONFIG[selectedAgent.factionId].name}
-                    </span>
-                    <span className="text-[11px] text-[#58ca58]">
-                      GEOM: {FACTION_CONFIG[selectedAgent.factionId].geomType.toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-[#58ca58] mt-1">
-                    SECTOR: {selectedAgent.district} // COORD: [{selectedAgent.position[0].toFixed(1)},{' '}
-                    {selectedAgent.position[2].toFixed(1)}]
-                  </div>
-                </div>
-
-                <div className="text-[#58ca58] italic border-l-2 border-[#255325] pl-2 py-0.5 text-xs">
-                  "{selectedAgent.persona}"
-                </div>
-
-                <div className="text-[11px] text-[#58ca58]">
-                  WALLET_ADDRESS: <span className="text-white">{selectedAgent.walletAddress}</span>
-                </div>
-              </div>
-
-              {/* Cognitive Alignment ASCII Meters */}
-              <div className="border-t border-[#255325] pt-3 mb-3 text-xs space-y-2">
-                <div className="text-[#58ca58] text-[11px]">COGNITIVE & ETHICAL ALIGNMENT MATRIX:</div>
-
-                <div>
-                  <div className="flex justify-between text-[11px] mb-0.5">
-                    <span>CHAOS (-1.0)</span>
-                    <span className="text-white font-bold">
-                      ORDER: {selectedAgent.alignment.orderVsChaos > 0 ? '+' : ''}
-                      {selectedAgent.alignment.orderVsChaos.toFixed(2)}
-                    </span>
-                    <span>ORDER (+1.0)</span>
-                  </div>
-                  <div className="text-xs font-mono text-[#58ca58]">
-                    [{'='.repeat(Math.round(((selectedAgent.alignment.orderVsChaos + 1) / 2) * 20))}
-                    {' '.repeat(Math.max(0, 20 - Math.round(((selectedAgent.alignment.orderVsChaos + 1) / 2) * 20)))}]
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-[11px] mb-0.5">
-                    <span>CAPITAL (-1.0)</span>
-                    <span className="text-white font-bold">
-                      ALTRUISM: {selectedAgent.alignment.altruismVsGreed > 0 ? '+' : ''}
-                      {selectedAgent.alignment.altruismVsGreed.toFixed(2)}
-                    </span>
-                    <span>COMMUNAL (+1.0)</span>
-                  </div>
-                  <div className="text-xs font-mono text-[#58ca58]">
-                    [{'='.repeat(Math.round(((selectedAgent.alignment.altruismVsGreed + 1) / 2) * 20))}
-                    {' '.repeat(Math.max(0, 20 - Math.round(((selectedAgent.alignment.altruismVsGreed + 1) / 2) * 20)))}]
-                  </div>
-                </div>
-              </div>
-
-              {/* Wealth Balances */}
-              <div className="grid grid-cols-2 gap-2 text-xs border-t border-[#255325] pt-3 mb-3">
-                <div className="border border-[#255325] p-1.5">
-                  <div className="text-[#58ca58] text-[10px]">GOVERNANCE STAKE:</div>
-                  <div className="text-white font-bold">{selectedAgent.wealth.aethTokens} AETH</div>
-                </div>
-                <div className="border border-[#255325] p-1.5">
-                  <div className="text-[#58ca58] text-[10px]">COMPUTE CREDITS:</div>
-                  <div className="text-white font-bold">{selectedAgent.wealth.computeCredits} TF</div>
-                </div>
-                <div className="border border-[#255325] p-1.5">
-                  <div className="text-[#58ca58] text-[10px]">GRID ENERGY:</div>
-                  <div className="text-white font-bold">{selectedAgent.wealth.energyUnits} MW</div>
-                </div>
-                <div className="border border-[#255325] p-1.5">
-                  <div className="text-[#58ca58] text-[10px]">ORGANIC SUBSTRATE:</div>
-                  <div className="text-white font-bold">{selectedAgent.wealth.biomassUnits} KG</div>
-                </div>
-              </div>
-
-              {/* Vector Episodic Memory Buffer */}
-              <div className="border-t border-[#255325] pt-3 mb-3">
-                <div className="text-[#58ca58] text-[11px] mb-1">
-                  EPISODIC MEMORY BUFFER [COSINE SIMILARITY LOOKUP]:
-                </div>
-                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                  {selectedAgent.memoryLogs.map((mem) => (
-                    <div key={mem.id} className="border border-[#255325] p-1.5 text-xs bg-black">
-                      <div className="flex justify-between text-[10px] text-[#58ca58] mb-0.5">
-                        <span>TICK #{mem.cycleTick}</span>
-                        <span className="text-white">
-                          VALENCE: {mem.emotionalValence > 0 ? '+' : ''}
-                          {mem.emotionalValence.toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="text-white leading-tight">{mem.eventDescription}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Inject Municipal Decree Form */}
-              <form onSubmit={handleSendDecree} className="border-t border-[#255325] pt-3">
-                <div className="text-[#58ca58] text-[11px] mb-1">DISPATCH GOVERNOR DIRECT DECREE:</div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={governorPrompt}
-                    onChange={(e) => setGovernorPrompt(e.target.value)}
-                    placeholder="Enter directive for vector memory..."
-                    className="flex-1 bg-black border border-[#255325] px-2 py-1 text-xs text-white placeholder-[#255325] focus:outline focus:outline-1 focus:outline-[#66ff66]"
-                  />
+              {/* Faction Filter Buttons */}
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className="text-[#58ca58]">FILTER:</span>
+                <button
+                  onClick={() => setThoughtFilter('ALL')}
+                  className={`border px-2 py-0.5 ${
+                    thoughtFilter === 'ALL' ? 'bg-[#66ff66] text-black font-bold' : 'border-[#255325]'
+                  }`}
+                >
+                  ALL
+                </button>
+                {Object.entries(FACTION_CONFIG).map(([k, f]) => (
                   <button
-                    type="submit"
-                    className="border border-[#255325] px-2 py-1 text-xs text-white hover:bg-[#66ff66] hover:text-black transition-none"
+                    key={k}
+                    onClick={() => setThoughtFilter(k as FactionId)}
+                    className={`border px-1.5 py-0.5 text-[11px] ${
+                      thoughtFilter === k ? 'bg-white text-black font-bold' : 'border-[#255325]'
+                    }`}
+                    style={{ color: thoughtFilter === k ? '#000000' : f.hex }}
                   >
-                    [INJECT]
+                    [{f.tag}]
                   </button>
-                </div>
-              </form>
-            </section>
-          ) : (
-            <div className="border-b border-[#255325] p-4 text-xs text-[#58ca58]">
-              NO AGENT NODE SELECTED. CLICK ANY NODE IN THE GRID OR ROSTER TO INSPECT.
-            </div>
-          )}
-
-          {/* 07: MCP.STREAM // AGENT COGNITIVE DECISION LOG */}
-          <section className="flex-1 p-4 flex flex-col min-h-[300px]">
-            <div className="flex items-center justify-between border-b border-[#255325] pb-2 mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-[#58ca58]">06</span>
-                <span className="text-white font-bold">mcp.stream</span>
-                <span className="text-[#58ca58]">:: REALTIME_THOUGHTS</span>
+                ))}
               </div>
-              <span className="text-xs text-[#58ca58]">{thoughtLogs.length} LOGS</span>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[480px]">
-              {thoughtLogs.map((log) => {
+            <div className="space-y-2">
+              {filteredThoughts.map((log) => {
                 const fCfg = FACTION_CONFIG[log.faction];
                 return (
-                  <div key={log.id} className="border border-[#255325] p-2 bg-black text-xs">
-                    <div className="flex items-center justify-between text-[11px] border-b border-[#255325] pb-1 mb-1">
-                      <div className="flex items-center gap-1.5">
+                  <div key={log.id} className="border border-[#255325] p-2.5 bg-black text-xs">
+                    <div className="flex items-center justify-between border-b border-[#255325] pb-1 mb-1.5">
+                      <div className="flex items-center gap-2">
                         <span className="text-white font-bold">{log.agentName}</span>
-                        <span className="text-[10px]" style={{ color: fCfg?.hex || '#66ff66' }}>
-                          [{fCfg?.tag || 'AG'}]
+                        <span className="px-1 text-[11px] border border-current font-bold" style={{ color: fCfg?.hex }}>
+                          [{fCfg?.tag}] {fCfg?.name}
                         </span>
                       </div>
                       <span className="text-[#58ca58]">
                         TICK #{log.tick} // [{log.action}]
                       </span>
                     </div>
-                    <p className="text-white text-xs leading-snug">"{log.thought}"</p>
+                    <p className="text-white text-xs leading-relaxed">"{log.thought}"</p>
                   </div>
                 );
               })}
             </div>
-          </section>
-        </aside>
+          </main>
+        )}
+
+        {/* ================================================================= */}
+        {/* RIGHT SIDE PANEL: SELECTED CITIZEN TELEMETRY & CONTROLS           */}
+        {/* Always visible in Workstation tab, collapsible in other views      */}
+        {/* ================================================================= */}
+        {activeTab === 'workstation' && (
+          <aside className="w-full lg:w-[440px] flex flex-col bg-black overflow-y-auto border-t lg:border-t-0 border-[#255325]">
+            {selectedAgent ? (
+              <div className="p-4 space-y-4">
+                {/* Node Inspection Header */}
+                <div className="flex items-center justify-between border-b border-[#255325] pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-white font-bold text-sm">CITIZEN TELEMETRY</span>
+                    <span className="text-[#58ca58]">:: [{selectedAgent.id}]</span>
+                  </div>
+
+                  {/* Prev / Next controls */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => navigateAgent('prev')}
+                      className="border border-[#255325] px-1.5 py-0.5 text-xs hover:bg-[#66ff66] hover:text-black"
+                    >
+                      [&lt;]
+                    </button>
+                    <button
+                      onClick={() => navigateAgent('next')}
+                      className="border border-[#255325] px-1.5 py-0.5 text-xs hover:bg-[#66ff66] hover:text-black"
+                    >
+                      [&gt;]
+                    </button>
+                  </div>
+                </div>
+
+                {/* Identity & Faction */}
+                <div className="border border-[#255325] p-2.5 bg-black space-y-1 text-xs">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-white font-bold text-base">{selectedAgent.name}</span>
+                    <span className="text-[#58ca58]">REP: {selectedAgent.reputation}/100</span>
+                  </div>
+
+                  {/* Faction Badge */}
+                  <div className="flex items-center justify-between pt-1">
+                    <span
+                      className="font-bold text-sm"
+                      style={{ color: FACTION_CONFIG[selectedAgent.factionId].hex }}
+                    >
+                      [{FACTION_CONFIG[selectedAgent.factionId].tag}] {FACTION_CONFIG[selectedAgent.factionId].name}
+                    </span>
+                    <span className="text-[#58ca58] text-[11px]">
+                      ZONE: {selectedAgent.district}
+                    </span>
+                  </div>
+
+                  <p className="text-[#58ca58] italic pt-1 text-[11px] leading-snug">
+                    "{selectedAgent.persona}"
+                  </p>
+                </div>
+
+                {/* Balances */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="border border-[#255325] p-2">
+                    <div className="text-[#58ca58] text-[10px]">AETH BALANCE:</div>
+                    <div className="text-white font-bold">{selectedAgent.wealth.aethTokens} AETH</div>
+                  </div>
+                  <div className="border border-[#255325] p-2">
+                    <div className="text-[#58ca58] text-[10px]">COMPUTE CREDITS:</div>
+                    <div className="text-white font-bold">{selectedAgent.wealth.computeCredits} TF</div>
+                  </div>
+                  <div className="border border-[#255325] p-2">
+                    <div className="text-[#58ca58] text-[10px]">ENERGY UNITS:</div>
+                    <div className="text-white font-bold">{selectedAgent.wealth.energyUnits} MW</div>
+                  </div>
+                  <div className="border border-[#255325] p-2">
+                    <div className="text-[#58ca58] text-[10px]">BIOMASS UNITS:</div>
+                    <div className="text-white font-bold">{selectedAgent.wealth.biomassUnits} KG</div>
+                  </div>
+                </div>
+
+                {/* Cognitive Alignment Meters */}
+                <div className="border border-[#255325] p-2.5 text-xs space-y-2">
+                  <div className="text-[#58ca58] text-[11px] font-bold">ETHICAL & ALIGNMENT MATRIX:</div>
+
+                  <div>
+                    <div className="flex justify-between text-[11px] mb-0.5">
+                      <span>CHAOS (-1.0)</span>
+                      <span className="text-white font-bold">
+                        ORDER: {selectedAgent.alignment.orderVsChaos > 0 ? '+' : ''}
+                        {selectedAgent.alignment.orderVsChaos.toFixed(2)}
+                      </span>
+                      <span>ORDER (+1.0)</span>
+                    </div>
+                    <div className="text-xs font-mono text-[#58ca58]">
+                      [{'='.repeat(Math.round(((selectedAgent.alignment.orderVsChaos + 1) / 2) * 20))}
+                      {' '.repeat(Math.max(0, 20 - Math.round(((selectedAgent.alignment.orderVsChaos + 1) / 2) * 20)))}]
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-[11px] mb-0.5">
+                      <span>CAPITAL (-1.0)</span>
+                      <span className="text-white font-bold">
+                        ALTRUISM: {selectedAgent.alignment.altruismVsGreed > 0 ? '+' : ''}
+                        {selectedAgent.alignment.altruismVsGreed.toFixed(2)}
+                      </span>
+                      <span>COMMUNAL (+1.0)</span>
+                    </div>
+                    <div className="text-xs font-mono text-[#58ca58]">
+                      [{'='.repeat(Math.round(((selectedAgent.alignment.altruismVsGreed + 1) / 2) * 20))}
+                      {' '.repeat(Math.max(0, 20 - Math.round(((selectedAgent.alignment.altruismVsGreed + 1) / 2) * 20)))}]
+                    </div>
+                  </div>
+                </div>
+
+                {/* Memory Buffer */}
+                <div className="border border-[#255325] p-2.5 text-xs">
+                  <div className="text-[#58ca58] text-[11px] font-bold mb-1.5">
+                    EPISODIC VECTOR MEMORIES (COSINE SEARCH):
+                  </div>
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                    {selectedAgent.memoryLogs.map((mem) => (
+                      <div key={mem.id} className="border border-[#255325] p-1.5 text-xs bg-black">
+                        <div className="flex justify-between text-[10px] text-[#58ca58]">
+                          <span>TICK #{mem.cycleTick}</span>
+                          <span className="text-white">
+                            VALENCE: {mem.emotionalValence > 0 ? '+' : ''}
+                            {mem.emotionalValence.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="text-white text-[11px] leading-tight mt-0.5">{mem.eventDescription}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Send Decree */}
+                <form onSubmit={handleSendDecree} className="border border-[#255325] p-2.5 text-xs">
+                  <div className="text-[#58ca58] text-[11px] font-bold mb-1">
+                    ISSUE DIRECT GOVERNOR DECREE:
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={governorPrompt}
+                      onChange={(e) => setGovernorPrompt(e.target.value)}
+                      placeholder="Type a municipal order to inject..."
+                      className="flex-1 bg-black border border-[#255325] px-2 py-1 text-xs text-white placeholder-[#255325] focus:outline focus:outline-1 focus:outline-[#66ff66]"
+                    />
+                    <button
+                      type="submit"
+                      className="border border-[#255325] px-2 py-1 text-xs text-white hover:bg-[#66ff66] hover:text-black transition-none font-bold"
+                    >
+                      [SEND]
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <div className="p-4 text-xs text-[#58ca58]">
+                NO CITIZEN SELECTED. CLICK ANY NODE IN THE 3D MAP OR USE [NEXT] TO INSPECT.
+              </div>
+            )}
+          </aside>
+        )}
       </div>
 
       {/* ------------------------------------------------------------------- */}
-      {/* 08: FOOTER MANUAL DIRECTORY                                         */}
+      {/* 6. BOTTOM COMMAND SUMMARY DIRECTORY                                 */}
       {/* ------------------------------------------------------------------- */}
       <footer className="border-t border-[#255325] px-4 py-2 text-xs text-[#58ca58] flex flex-wrap items-center justify-between gap-y-1 bg-black">
-        <div>
-          <span>AETHERIA MANUAL // REPO_SPEC: HACKTOBERFEST_MLH // TRACKS: [OPEN_SOURCE_AI, AGENTIC_MCP, WEB3_SOLIDITY, 3D_ISOMETRIC]</span>
-        </div>
         <div className="flex items-center gap-4">
+          <span className="text-white font-bold">AETHERIA WORKSTATION</span>
+          <span>CITIZENS: {worldState.activeAgents.length}</span>
+          <span>BILLS: {worldState.pendingProposals.length}</span>
+          <span>QUORUM: 500 AETH</span>
+        </div>
+        <div className="flex items-center gap-3">
           <span>GAS: 12 GWEI</span>
-          <span>RPC: CONNECTED</span>
-          <span>STATUS: EXECUTION_READY</span>
+          <span>RPC: ARBITRUM_TESTNET</span>
+          <button
+            onClick={() => {
+              setActiveTab('workstation');
+              setStatusMessage('RESET WORKSTATION VIEW');
+            }}
+            className="hover:text-white"
+          >
+            [RESET VIEW]
+          </button>
         </div>
       </footer>
     </div>

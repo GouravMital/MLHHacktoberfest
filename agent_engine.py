@@ -509,16 +509,21 @@ app.add_middleware(
 civ_engine = AetheriaCivilizationEngine()
 
 
+from typing import Literal
+import re
+
 class HumanVotePayload(BaseModel):
-    proposalId: int
-    voterAddress: str
-    tokenWeight: float
+    proposalId: int = Field(..., ge=1, description="Positive proposal ID integer")
+    voterAddress: str = Field(..., pattern=r"^0x[a-fA-F0-9]{40}$", description="Valid 20-byte Ethereum hex address")
+    tokenWeight: float = Field(..., gt=0, le=100_000, description="Voting token weight bounded to valid stake")
     support: bool
 
 
 class InjectCrisisPayload(BaseModel):
-    crisisType: str = Field(..., example="GRID_BROWNOUT")
-    description: str
+    crisisType: Literal["GRID_BROWNOUT", "SOLAR_FLARE", "OPTIMAL_FLUX"] = Field(
+        ..., description="Authorized environmental crisis state"
+    )
+    description: str = Field(..., min_length=3, max_length=500, description="Sanitized incident description")
 
 
 @app.get("/status")

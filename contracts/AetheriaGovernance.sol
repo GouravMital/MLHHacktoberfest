@@ -4,19 +4,19 @@ pragma solidity ^0.8.20;
 /**
  * @title AetheriaGovernance
  * @author Aetheria Core Engineering Matrix
- * @notice Complete, self-contained On-Chain Governance Matrix & ERC-20 Token ("AETH")
+ * @notice Complete, production-hardened On-Chain Governance Matrix & ERC-20 Token ("AETH")
  * for the Aetheria Autonomous Synthetic Micro-Civilization.
  * 
- * Features:
- * - Built-in ERC-20 Governance Token standard with agent staking & municipal reserves
- * - Autonomous AI agent proposal dispatch with cryptographic verification
- * - Human Governor weighted voting matrix with quorum execution
- * - Automated municipal parameter enforcement upon passing
+ * Security Features:
+ * - Anti-Sybil Faucet Cooldown (1 hour per wallet, max 250 AETH burst)
+ * - Anti-Vote-Laundering Transfer Lock (tokens locked until proposal deadline)
+ * - Bounded input validation preventing gas-griefing & block limits DOS
+ * - Strict access control & Reentrancy-safe state execution transitions
  */
 
 contract AetheriaGovernance {
     // ------------------------------------------------------------------------
-    // 1. ERC-20 State & Lightweight Implementation
+    // 1. ERC-20 State & Hardened Implementation
     // ------------------------------------------------------------------------
     string public constant name = "Aetheria Civic Token";
     string public constant symbol = "AETH";
@@ -25,6 +25,14 @@ contract AetheriaGovernance {
     uint256 private _totalSupply;
     mapping(address => uint256) private _balances;
     mapping(address => mapping(address => uint256)) private _allowances;
+
+    // Security: Lock transfers if sender has voted in a proposal whose voting period is still active
+    mapping(address => uint256) public votingLockBlock;
+
+    // Security: Anti-Sybil Faucet Cooldown tracking
+    mapping(address => uint256) public lastFaucetClaim;
+    uint256 public constant FAUCET_COOLDOWN = 1 hours;
+    uint256 public constant MAX_FAUCET_AMOUNT = 250 * 10**18;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
@@ -64,6 +72,8 @@ contract AetheriaGovernance {
     function _transfer(address from, address to, uint256 amount) internal {
         require(from != address(0), "AETH: transfer from zero");
         require(to != address(0), "AETH: transfer to zero");
+        require(block.number > votingLockBlock[from], "AETH: tokens locked in active governance vote");
+
         uint256 fromBalance = _balances[from];
         require(fromBalance >= amount, "AETH: balance below transfer amount");
         unchecked {
@@ -108,15 +118,18 @@ contract AetheriaGovernance {
         bytes32 lawHash;
     }
 
-    address public immutable cityGrandCouncil; // Deployer / Supreme Oracle
+    address public immutable cityGrandCouncil;
     uint256 public proposalCount;
     uint256 public votingPeriodBlocks = 7200; // ~24 hours at 12s blocks
-    uint256 public constant MIN_PROPOSAL_STAKE = 10 * 10**18; // 10 AETH
-    uint256 public constant QUORUM_THRESHOLD = 500 * 10**18; // 500 AETH minimum combined votes
+    uint256 public constant MIN_PROPOSAL_STAKE = 10 * 10**18;
+    uint256 public constant QUORUM_THRESHOLD = 500 * 10**18;
 
     mapping(uint256 => Proposal) public proposals;
     mapping(uint256 => mapping(address => bool)) public hasVoted;
     mapping(address => bool) public authorizedAgentGateways;
+
+    // Mutex lock for nonReentrant execution
+    bool private _locked;
 
     // ------------------------------------------------------------------------
     // 3. Events
@@ -164,6 +177,13 @@ contract AetheriaGovernance {
         _;
     }
 
+    modifier nonReentrant() {
+        require(!_locked, "Aetheria: reentrant call");
+        _locked = true;
+        _;
+        _locked = false;
+    }
+
     // ------------------------------------------------------------------------
     // 5. Constructor & Initialization
     // ------------------------------------------------------------------------
@@ -173,18 +193,26 @@ contract AetheriaGovernance {
         authorizedAgentGateways[msg.sender] = true;
 
         // Mint Genesis Supply: 1,000,000 AETH
-        // - 400,000 AETH to Municipal Treasury
-        // - 600,000 AETH distributed to citizen agent smart accounts & liquidity
         _mint(msg.sender, 400000 * 10**18);
     }
 
     function setAgentGateway(address gateway, bool authorized) external onlyCouncil {
+        require(gateway != address(0), "Aetheria: zero address gateway");
         authorizedAgentGateways[gateway] = authorized;
         emit AgentGatewayAuthorized(gateway, authorized);
     }
 
+    /**
+     * @notice Hardened Citizen Faucet with Sybil rate-limiting
+     */
     function claimCitizenFaucet(address citizenWallet, uint256 amount) external {
-        require(amount <= 250 * 10**18, "AETH: exceeds max faucet burst");
+        require(citizenWallet != address(0), "AETH: zero address");
+        require(amount > 0 && amount <= MAX_FAUCET_AMOUNT, "AETH: invalid faucet burst amount");
+        require(
+            block.timestamp >= lastFaucetClaim[citizenWallet] + FAUCET_COOLDOWN,
+            "AETH: faucet cooldown active (1 hr rate limit)"
+        );
+        lastFaucetClaim[citizenWallet] = block.timestamp;
         _mint(citizenWallet, amount);
     }
 
@@ -193,15 +221,18 @@ contract AetheriaGovernance {
     // ------------------------------------------------------------------------
 
     /**
-     * @notice Allows an autonomous AI agent (or its orchestration proxy) to post a legislative bill.
-     * @param agentWallet The cryptographic address of the proposing agent.
-     * @param description Complete description and parameter shift of the proposed law.
+     * @notice Submits a legislative proposal from an authorized agent gateway.
+     * Enforces length constraints to prevent block limits gas-griefing.
      */
     function submitProposalByAgent(
         address agentWallet,
         string memory title,
         string memory description
     ) external onlyAuthorizedGateway returns (uint256 proposalId) {
+        require(agentWallet != address(0), "Aetheria: zero agent address");
+        require(bytes(title).length > 0 && bytes(title).length <= 128, "Aetheria: title length invalid");
+        require(bytes(description).length > 0 && bytes(description).length <= 2048, "Aetheria: description length invalid");
+
         proposalCount++;
         proposalId = proposalCount;
 
@@ -229,9 +260,7 @@ contract AetheriaGovernance {
     }
 
     /**
-     * @notice Allows human Governors and citizen tokenholders to cast token-weighted votes.
-     * @param proposalId The ID of the targeted law.
-     * @param support True for 'Aye' (support), False for 'Nay' (oppose).
+     * @notice Casts a token-weighted vote. Locks voter balance until proposal deadline to prevent vote laundering.
      */
     function voteOnProposal(uint256 proposalId, bool support) external {
         Proposal storage p = proposals[proposalId];
@@ -244,6 +273,11 @@ contract AetheriaGovernance {
 
         hasVoted[proposalId][msg.sender] = true;
 
+        // Anti-Flashloan / Anti-Vote-Laundering: Lock tokens from transfer until this proposal concludes
+        if (p.votingDeadline > votingLockBlock[msg.sender]) {
+            votingLockBlock[msg.sender] = p.votingDeadline;
+        }
+
         if (support) {
             p.votesFor += voterWeight;
         } else {
@@ -254,10 +288,9 @@ contract AetheriaGovernance {
     }
 
     /**
-     * @notice Finalizes a passed bill and executes its municipal law invariants onto the digital city-state.
-     * @param proposalId The ID of the proposal to enact.
+     * @notice Executes a passed proposal once voting is complete and quorum is verified.
      */
-    function executeLaw(uint256 proposalId) external {
+    function executeLaw(uint256 proposalId) external nonReentrant {
         Proposal storage p = proposals[proposalId];
         require(p.id != 0, "Aetheria: proposal does not exist");
         require(block.number > p.votingDeadline, "Aetheria: voting period still active");
